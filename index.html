@@ -193,6 +193,107 @@
     </main>
 
     <script>
+        /**
+         * AUDIO SYSTEM: สังเคราะห์เสียงด้วย Web Audio API
+         */
+        class SoundManager {
+            constructor() {
+                this.ctx = null;
+                this.motorOsc = null;
+                this.motorGain = null;
+                this.isMotorRunning = false;
+            }
+
+            init() {
+                if (this.ctx) return;
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            // เสียงคลิกปุ่ม UI
+            playClick() {
+                this.init();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(1000, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.1);
+            }
+
+            // เสียงมอเตอร์ (Motor Sound)
+            startMotor() {
+                this.init();
+                if (this.isMotorRunning) return;
+                this.isMotorRunning = true;
+
+                this.motorOsc = this.ctx.createOscillator();
+                this.motorGain = this.ctx.createGain();
+                this.motorOsc.type = 'sawtooth';
+                this.motorOsc.frequency.setValueAtTime(50, this.ctx.currentTime);
+                
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 400;
+
+                this.motorGain.gain.setValueAtTime(0, this.ctx.currentTime);
+                this.motorGain.gain.linearRampToValueAtTime(0.04, this.ctx.currentTime + 0.1);
+
+                this.motorOsc.connect(filter);
+                filter.connect(this.motorGain);
+                this.motorGain.connect(this.ctx.destination);
+                this.motorOsc.start();
+            }
+
+            stopMotor() {
+                if (!this.isMotorRunning) return;
+                this.isMotorRunning = false;
+                if (this.motorGain) {
+                    this.motorGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.1);
+                    setTimeout(() => { if (this.motorOsc) this.motorOsc.stop(); }, 100);
+                }
+            }
+
+            // เสียงคีบ/วาง (Gripper Sound)
+            playGripper() {
+                this.init();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.linearRampToValueAtTime(350, this.ctx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.15);
+            }
+
+            // เสียงทำคะแนนได้ (Score Sound)
+            playScore() {
+                this.init();
+                const now = this.ctx.currentTime;
+                const playBeep = (freq, time, dur) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.frequency.setValueAtTime(freq, time);
+                    gain.gain.setValueAtTime(0.1, time);
+                    gain.gain.exponentialRampToValueAtTime(0.01, time + dur);
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.start(time); osc.stop(time + dur);
+                };
+                playBeep(880, now, 0.1);
+                playBeep(1320, now + 0.12, 0.2);
+            }
+        }
+
+        const sounds = new SoundManager();
+
         // Polyfill for roundRect
         if (!CanvasRenderingContext2D.prototype.roundRect) {
             CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
@@ -219,10 +320,9 @@
         const wallSlider = document.getElementById('wallDensity');
         const densityDisplay = document.getElementById('densityVal');
 
-        // Darker Green Hex: #059669 (Emerald 600/700 style)
         const COLORS = { 
             YELLOW: '#fbbf24', 
-            GREEN: '#059669', // ปรับเป็นเขียวเข้ม Emerald
+            GREEN: '#059669',
             RED: '#ef4444', 
             BLUE: '#3b82f6' 
         };
@@ -262,6 +362,7 @@
         wallSlider.addEventListener('input', (e) => densityDisplay.innerText = e.target.value);
 
         function startMission() {
+            sounds.playClick();
             isMissionStarted = true;
             document.getElementById('startOverlay').classList.add('hidden-element');
             
@@ -327,6 +428,7 @@
         }
 
         function toggleTheme() {
+            sounds.playClick();
             isDarkMode = !isDarkMode;
             if (isDarkMode) document.body.classList.remove('light-mode');
             else document.body.classList.add('light-mode');
@@ -354,12 +456,14 @@
         }
 
         function resetRobotToCenter() {
+            sounds.playClick();
             robot.x = canvas.width / 2;
             robot.y = canvas.height / 2;
             robot.angle = -90;
         }
 
         function resetWholeMission() {
+            sounds.playClick();
             isMissionStarted = false;
             clearInterval(timerInterval);
             startTime = null;
@@ -382,6 +486,7 @@
         function initMission() { score = 0; updateScoreUI(); }
 
         function spawnObject() {
+            sounds.playClick();
             if(isMissionStarted) return;
             const padding = 120;
             for(let i=0; i<20; i++) {
@@ -399,11 +504,20 @@
             }
         }
 
-        function startMove(dir, event) { if (event) event.preventDefault(); moveState[dir] = true; }
+        function startMove(dir, event) { 
+            if (event) event.preventDefault(); 
+            sounds.playClick();
+            moveState[dir] = true; 
+        }
         function stopMove(event) { if (event) event.preventDefault(); moveState = { up: false, down: false, left: false, right: false }; }
-        function rotateRobot(deg) { robot.angle += deg; }
+        
+        function rotateRobot(deg) { 
+            sounds.playClick();
+            robot.angle += deg; 
+        }
 
         function setGripper(isOpen) {
+            sounds.playGripper();
             robot.gripperOpen = isOpen;
             if (!isOpen) {
                 const rad = robot.angle * (Math.PI / 180);
@@ -440,7 +554,11 @@
             dropZones.forEach(zone => {
                 if (Math.hypot(obj.x - zone.x, obj.y - zone.y) < DROP_ZONE_SIZE * 0.8) {
                     placed = true;
-                    if (obj.color === zone.color) { score += 10; updateScoreUI(); }
+                    if (obj.color === zone.color) { 
+                        score += 10; 
+                        updateScoreUI(); 
+                        sounds.playScore(); 
+                    }
                     else objects.push(obj);
                 }
             });
@@ -461,11 +579,17 @@
             let nextX = robot.x;
             let nextY = robot.y;
             const r = robot.angle * (Math.PI / 180);
+            
+            let isMoving = moveState.up || moveState.down || moveState.left || moveState.right;
 
             if (moveState.up) { nextX += Math.cos(r) * spd; nextY += Math.sin(r) * spd; }
             if (moveState.down) { nextX -= Math.cos(r) * spd; nextY -= Math.sin(r) * spd; }
             if (moveState.left) robot.angle -= 3;
             if (moveState.right) robot.angle += 3;
+
+            // Handle Motor Sound
+            if (isMoving) sounds.startMotor();
+            else sounds.stopMotor();
 
             if (!isPointInWall(nextX, nextY)) {
                 robot.x = nextX; robot.y = nextY;
