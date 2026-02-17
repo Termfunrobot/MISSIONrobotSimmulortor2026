@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Robot Control Simulator - ระบบจำลองหุ่นยนต์</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Sarabun:wght@300;400;600&display=swap');
+        
+        :root {
+            --bg-main: #0f172a;
+            --bg-nav: rgba(15, 23, 42, 0.8);
+            --bg-card: #0f172a;
+            --border-color: #1e293b;
+            --text-main: #f1f5f9;
+            --grid-color: rgba(30, 41, 59, 0.4);
+        }
+
+        .light-mode {
+            --bg-main: #f8fafc;
+            --bg-nav: rgba(248, 250, 252, 0.8);
+            --bg-card: #ffffff;
+            --border-color: #e2e8f0;
+            --text-main: #0f172a;
+            --grid-color: rgba(148, 163, 184, 0.2);
+        }
+
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            overflow-x: hidden;
+            touch-action: manipulation;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .terminal-font {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        canvas {
+            background-image: 
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+            background-size: 40px 40px;
+            background-color: var(--bg-card);
+            touch-action: none;
+            transition: background-color 0.3s;
+        }
+
+        .joystick-btn {
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            touch-action: none;
+            transition: all 0.1s;
+        }
+        
+        .joystick-btn:active {
+            transform: translateY(2px);
+            filter: brightness(1.2);
+        }
+
+        .joystick-grid {
+            display: grid;
+            grid-template-areas: 
+                ". up ."
+                "left . right"
+                ". down .";
+            gap: 12px;
+        }
+
+        .score-animate {
+            animation: pulse-score 0.5s ease-out;
+        }
+
+        @keyframes pulse-score {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); color: #22c55e; }
+            100% { transform: scale(1); }
+        }
+
+        .light-mode .bg-slate-900\/50 { background-color: rgba(226, 232, 240, 0.5); }
+        .light-mode .bg-slate-900 { background-color: #ffffff; }
+        .light-mode .bg-slate-800 { background-color: #f1f5f9; color: #1e293b; border-bottom-color: #cbd5e1; }
+        .light-mode .border-slate-800 { border-color: #e2e8f0; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Navigation -->
+    <nav class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 transition-colors">
+        <div class="max-w-6xl mx-auto px-4 py-2 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <div class="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg">
+                    <i class="fas fa-robot text-white text-sm"></i>
+                </div>
+                <div>
+                    <h1 class="text-sm font-bold tracking-tight">ROBO-PRO v3.6.4</h1>
+                    <p class="text-[9px] text-blue-400 terminal-font uppercase tracking-tighter">Status: Lateral Drop Zones</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button onclick="toggleTheme()" class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-800 text-yellow-500 hover:bg-slate-700 transition-colors shadow-md border border-slate-700 dark-toggle-btn">
+                    <i id="themeIcon" class="fas fa-moon"></i>
+                </button>
+                <div class="text-right">
+                    <p id="scoreDisplay" class="text-xl font-bold text-yellow-500 terminal-font">000</p>
+                </div>
+                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-grow flex flex-col max-w-6xl mx-auto w-full p-2 gap-2">
+        
+        <div id="canvasContainer" class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl relative flex-grow min-h-[350px] transition-colors">
+            <div class="absolute top-2 left-2 z-10 pointer-events-none">
+                <div class="bg-slate-900/90 backdrop-blur p-2 rounded-lg border border-slate-700 text-[10px] terminal-font space-y-1 shadow-xl info-panel">
+                    <p class="text-slate-400">POS: <span id="valX" class="text-blue-400">0</span>, <span id="valY" class="text-blue-400">0</span></p>
+                    <p class="text-slate-400">CARGO: <span id="valCargo" class="text-orange-400 font-bold uppercase">EMPTY</span></p>
+                </div>
+            </div>
+            
+            <canvas id="robotCanvas" class="w-full h-full"></canvas>
+
+            <div class="absolute bottom-2 right-2 flex flex-col gap-2">
+                <button onclick="spawnObject()" class="bg-indigo-600/90 hover:bg-indigo-500 p-3 rounded-xl text-xs font-bold shadow-lg joystick-btn">
+                    <i class="fas fa-plus text-lg mr-1"></i> เพิ่มวัตถุ
+                </button>
+                <button onclick="resetRobotToCenter()" class="bg-slate-800/90 p-3 rounded-xl text-xs joystick-btn border border-slate-700">
+                    <i class="fas fa-street-view text-lg"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Controls Area -->
+        <div class="grid grid-cols-2 gap-2 pb-4">
+            <!-- Movement Joystick -->
+            <div class="bg-slate-900/50 border border-slate-800 p-4 rounded-2xl flex items-center justify-center transition-colors">
+                <div class="joystick-grid">
+                    <button 
+                        ontouchstart="startMove('up', event)" ontouchend="stopMove(event)" 
+                        onmousedown="startMove('up')" onmouseup="stopMove()"
+                        class="joystick-btn w-16 h-16 bg-slate-800 active:bg-blue-600 rounded-2xl flex items-center justify-center text-3xl shadow-xl border-b-4 border-slate-950" style="grid-area: up;">
+                        <i class="fas fa-caret-up"></i>
+                    </button>
+                    <button 
+                        ontouchstart="startMove('left', event)" ontouchend="stopMove(event)"
+                        onmousedown="startMove('left')" onmouseup="stopMove()"
+                        class="joystick-btn w-16 h-16 bg-slate-800 active:bg-blue-600 rounded-2xl flex items-center justify-center text-3xl shadow-xl border-b-4 border-slate-950" style="grid-area: left;">
+                        <i class="fas fa-caret-left"></i>
+                    </button>
+                    <button 
+                        ontouchstart="startMove('right', event)" ontouchend="stopMove(event)"
+                        onmousedown="startMove('right')" onmouseup="stopMove()"
+                        class="joystick-btn w-16 h-16 bg-slate-800 active:bg-blue-600 rounded-2xl flex items-center justify-center text-3xl shadow-xl border-b-4 border-slate-950" style="grid-area: right;">
+                        <i class="fas fa-caret-right"></i>
+                    </button>
+                    <button 
+                        ontouchstart="startMove('down', event)" ontouchend="stopMove(event)"
+                        onmousedown="startMove('down')" onmouseup="stopMove()"
+                        class="joystick-btn w-16 h-16 bg-slate-800 active:bg-blue-600 rounded-2xl flex items-center justify-center text-3xl shadow-xl border-b-4 border-slate-950" style="grid-area: down;">
+                        <i class="fas fa-caret-down"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Interaction Buttons -->
+            <div class="flex flex-col gap-2">
+                <!-- Main Reset Button -->
+                <button onclick="resetWholeMission()" class="bg-red-600 hover:bg-red-500 py-3 rounded-xl text-xs font-bold shadow-lg joystick-btn border-b-4 border-red-900 text-white mb-1">
+                    <i class="fas fa-sync-alt mr-2"></i> รีเซ็ตภารกิจ
+                </button>
+                
+                <div class="grid grid-cols-2 gap-2 flex-grow">
+                    <button onclick="setGripper(false)" class="bg-orange-600 active:bg-orange-500 rounded-2xl text-xs font-bold shadow-lg flex flex-col items-center justify-center joystick-btn border-b-4 border-orange-900 text-white">
+                        <i class="fas fa-hand-grab text-2xl mb-1"></i>
+                        คีบ
+                    </button>
+                    <button onclick="setGripper(true)" class="bg-slate-700 active:bg-slate-600 rounded-2xl text-xs font-bold shadow-lg flex flex-col items-center justify-center joystick-btn border-b-4 border-slate-900 text-white">
+                        <i class="fas fa-hand-paper text-2xl mb-1"></i>
+                        วาง
+                    </button>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="rotateRobot(-20)" class="bg-slate-800 active:bg-indigo-600 py-4 rounded-2xl joystick-btn border-b-4 border-slate-950 text-xl">
+                        <i class="fas fa-undo"></i>
+                    </button>
+                    <button onclick="rotateRobot(20)" class="bg-slate-800 active:bg-indigo-600 py-4 rounded-2xl joystick-btn border-b-4 border-slate-950 text-xl">
+                        <i class="fas fa-redo"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Polyfill for roundRect
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+                if (typeof r === 'undefined') r = 0;
+                if (typeof r === 'number') {
+                    r = {tl: r, tr: r, br: r, bl: r};
+                } else {
+                    var defaultRadius = {tl: 0, tr: 0, br: 0, bl: 0};
+                    for (var key in defaultRadius) {
+                        r[key] = r[key] || defaultRadius[key];
+                    }
+                }
+                this.beginPath();
+                this.moveTo(x + r.tl, y);
+                this.lineTo(x + w - r.tr, y);
+                this.quadraticCurveTo(x + w, y, x + w, y + r.tr);
+                this.lineTo(x + w, y + h - r.br);
+                this.quadraticCurveTo(x + w, y + h, x + w - r.br, y + h);
+                this.lineTo(x + r.bl, y + h);
+                this.quadraticCurveTo(x, y + h, x, y + h - r.bl);
+                this.lineTo(x, r.tl + y); // Fix: incorrect starting line
+                this.lineTo(x, y + r.tl);
+                this.quadraticCurveTo(x, y, x + r.tl, y);
+                this.closePath();
+                return this;
+            };
+        }
+
+        const canvas = document.getElementById('robotCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const COLORS = { YELLOW: '#fbbf24', GREEN: '#22c55e', RED: '#ef4444', BLUE: '#3b82f6' };
+        const OBJECT_COLORS = [COLORS.YELLOW, COLORS.GREEN, COLORS.RED, COLORS.BLUE]; 
+        const GRAB_DISTANCE = 45; 
+        const DROP_ZONE_SIZE = 64;
+
+        let robot = {
+            x: 0, y: 0, angle: -90, 
+            gripperOpen: true, gripperValue: 0, 
+            attachedObject: null, 
+            pulse: 0
+        };
+
+        let objects = []; 
+        let dropZones = [];
+        let score = 0;
+        let moveState = { up: false, down: false, left: false, right: false };
+        let isDarkMode = true;
+
+        window.onload = () => {
+            resizeCanvas();
+            initMission();
+            requestAnimationFrame(update);
+        };
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            const body = document.body;
+            const icon = document.getElementById('themeIcon');
+            if (isDarkMode) {
+                body.classList.remove('light-mode');
+                icon.className = 'fas fa-moon';
+            } else {
+                body.classList.add('light-mode');
+                icon.className = 'fas fa-sun';
+            }
+        }
+
+        function resizeCanvas() {
+            const container = document.getElementById('canvasContainer');
+            if(!container) return;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            
+            if (robot.x === 0) resetRobotToCenter();
+            initDropZones();
+        }
+
+        function initDropZones() {
+            const margin = 60;
+            const topY = 100;
+            const bottomY = canvas.height - 100;
+            
+            dropZones = [
+                { x: margin, y: topY, color: COLORS.YELLOW, label: 'YELLOW' },
+                { x: margin, y: bottomY, color: COLORS.GREEN, label: 'GREEN' },
+                { x: canvas.width - margin, y: topY, color: COLORS.RED, label: 'RED' },
+                { x: canvas.width - margin, y: bottomY, color: COLORS.BLUE, label: 'BLUE' }
+            ];
+        }
+
+        function resetRobotToCenter() {
+            robot.x = canvas.width / 2;
+            robot.y = canvas.height / 2;
+            robot.angle = -90;
+        }
+
+        function resetWholeMission() {
+            objects = [];
+            robot.attachedObject = null;
+            robot.gripperOpen = true;
+            score = 0;
+            updateScoreUI();
+            resetRobotToCenter();
+        }
+
+        function initMission() {
+            score = 0;
+            updateScoreUI();
+        }
+
+        function spawnObject() {
+            const padding = 120;
+            objects.push({
+                id: Math.random().toString(36).substr(2, 5),
+                x: padding + Math.random() * (canvas.width - padding * 2),
+                y: padding + Math.random() * (canvas.height - padding * 2),
+                size: 20, color: OBJECT_COLORS[Math.floor(Math.random() * OBJECT_COLORS.length)],
+                rotation: Math.random() * 360
+            });
+        }
+
+        function startMove(dir, event) {
+            if (event) event.preventDefault();
+            moveState[dir] = true;
+        }
+
+        function stopMove(event) {
+            if (event) event.preventDefault();
+            moveState = { up: false, down: false, left: false, right: false };
+        }
+
+        function rotateRobot(deg) { robot.angle += deg; }
+
+        function setGripper(isOpen) {
+            robot.gripperOpen = isOpen;
+            if (!isOpen) {
+                const rad = robot.angle * (Math.PI / 180);
+                const gX = robot.x + Math.cos(rad) * 30;
+                const gY = robot.y + Math.sin(rad) * 30;
+                let nearestIdx = -1;
+                let minDist = GRAB_DISTANCE;
+                
+                objects.forEach((obj, idx) => {
+                    const dist = Math.hypot(obj.x - gX, obj.y - gY);
+                    if (dist < minDist) { minDist = dist; nearestIdx = idx; }
+                });
+
+                if (nearestIdx !== -1 && !robot.attachedObject) {
+                    robot.attachedObject = objects[nearestIdx];
+                    objects.splice(nearestIdx, 1);
+                }
+            } else if (robot.attachedObject) {
+                const rad = robot.angle * (Math.PI / 180);
+                robot.attachedObject.x = robot.x + Math.cos(rad) * 45;
+                robot.attachedObject.y = robot.y + Math.sin(rad) * 45;
+                checkScoring(robot.attachedObject);
+                robot.attachedObject = null;
+            }
+        }
+
+        function checkScoring(obj) {
+            let placed = false;
+            dropZones.forEach(zone => {
+                if (Math.hypot(obj.x - zone.x, obj.y - zone.y) < DROP_ZONE_SIZE * 0.8) {
+                    placed = true;
+                    if (obj.color === zone.color) {
+                        score += 10;
+                        updateScoreUI();
+                    } else {
+                        objects.push(obj);
+                    }
+                }
+            });
+            if (!placed) objects.push(obj);
+        }
+
+        function updateScoreUI() {
+            const el = document.getElementById('scoreDisplay');
+            if(!el) return;
+            el.innerText = score.toString().padStart(3, '0');
+            el.classList.remove('score-animate');
+            void el.offsetWidth;
+            el.classList.add('score-animate');
+        }
+
+        function update() {
+            const spd = 3.5;
+            if (moveState.up) {
+                const r = robot.angle * (Math.PI / 180);
+                robot.x += Math.cos(r) * spd; robot.y += Math.sin(r) * spd;
+            }
+            if (moveState.down) {
+                const r = robot.angle * (Math.PI / 180);
+                robot.x -= Math.cos(r) * spd; robot.y -= Math.sin(r) * spd;
+            }
+            if (moveState.left) robot.angle -= 3;
+            if (moveState.right) robot.angle += 3;
+
+            robot.gripperValue += ((robot.gripperOpen ? 0 : 1) - robot.gripperValue) * 0.25;
+            robot.pulse += 0.05;
+            
+            robot.x = Math.max(25, Math.min(canvas.width - 25, robot.x));
+            robot.y = Math.max(25, Math.min(canvas.height - 25, robot.y));
+
+            draw();
+            updateUI();
+            requestAnimationFrame(update);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Drop Zones
+            dropZones.forEach(z => {
+                ctx.save();
+                ctx.strokeStyle = z.color; ctx.lineWidth = 3; ctx.setLineDash([8, 4]);
+                ctx.beginPath(); ctx.arc(z.x, z.y, DROP_ZONE_SIZE/2, 0, Math.PI*2); ctx.stroke();
+                
+                const glow = Math.sin(robot.pulse) * 0.15 + 0.2;
+                ctx.fillStyle = z.color; ctx.globalAlpha = glow;
+                ctx.fill();
+                
+                ctx.globalAlpha = 1.0;
+                ctx.setLineDash([]); 
+                ctx.fillStyle = z.color; 
+                ctx.font = "bold 11px JetBrains Mono"; 
+                ctx.textAlign="center";
+                ctx.fillText(z.label, z.x, z.y + 4);
+                ctx.restore();
+            });
+
+            // Draw Objects
+            objects.forEach(o => {
+                ctx.save();
+                ctx.translate(o.x, o.y);
+                ctx.rotate(o.rotation * Math.PI/180);
+                ctx.fillStyle = o.color;
+                ctx.fillRect(-10, -10, 20, 20);
+                ctx.strokeStyle = "rgba(255,255,255,0.5)";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(-10, -10, 20, 20);
+                ctx.restore();
+            });
+
+            // Draw Robot
+            ctx.save();
+            ctx.translate(robot.x, robot.y);
+            ctx.rotate(robot.angle * (Math.PI/180));
+
+            // Treads
+            ctx.fillStyle = isDarkMode ? "#1e293b" : "#334155";
+            ctx.beginPath();
+            ctx.roundRect(-22, -20, 44, 8, 4);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.roundRect(-22, 12, 44, 8, 4);
+            ctx.fill();
+
+            // Cargo
+            if (robot.attachedObject) {
+                ctx.save();
+                ctx.translate(35, 0);
+                ctx.fillStyle = robot.attachedObject.color;
+                ctx.fillRect(-10, -10, 20, 20);
+                ctx.strokeStyle = "white"; ctx.strokeRect(-10, -10, 20, 20);
+                ctx.restore();
+            }
+
+            // Body
+            const bodyGrad = ctx.createLinearGradient(-18, 0, 18, 0);
+            bodyGrad.addColorStop(0, "#2563eb");
+            bodyGrad.addColorStop(1, "#1d4ed8");
+            ctx.fillStyle = bodyGrad;
+            ctx.beginPath();
+            ctx.roundRect(-18, -14, 36, 28, 6);
+            ctx.fill();
+
+            // Eye
+            ctx.fillStyle = "#0f172a";
+            ctx.beginPath(); ctx.arc(10, 0, 5, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#ef4444";
+            ctx.beginPath(); ctx.arc(10, 0, 2, 0, Math.PI*2); ctx.fill();
+
+            // Gripper
+            ctx.strokeStyle = isDarkMode ? "#cbd5e1" : "#475569"; ctx.lineWidth = 4; ctx.lineCap = "round";
+            const gVal = 0.5 * robot.gripperValue;
+            
+            ctx.save();
+            ctx.translate(15, -7); ctx.rotate(gVal);
+            ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(20, -5); ctx.stroke();
+            ctx.restore();
+
+            ctx.save();
+            ctx.translate(15, 7); ctx.rotate(-gVal);
+            ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(20, 5); ctx.stroke();
+            ctx.restore();
+
+            ctx.restore();
+        }
+
+        function updateUI() {
+            const xEl = document.getElementById('valX');
+            const yEl = document.getElementById('valY');
+            const cargo = document.getElementById('valCargo');
+            if(xEl) xEl.innerText = Math.round(robot.x);
+            if(yEl) yEl.innerText = Math.round(robot.y);
+            if(cargo) {
+                cargo.innerText = robot.attachedObject ? "LOADED" : "EMPTY";
+                cargo.className = robot.attachedObject ? "text-green-400 font-bold" : "text-orange-400";
+            }
+        }
+
+        document.body.addEventListener("touchstart", (e) => {
+            if (e.target.closest('.joystick-btn')) e.preventDefault();
+        }, {passive: false});
+
+    </script>
+</body>
+</html>
